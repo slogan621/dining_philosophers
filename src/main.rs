@@ -4,6 +4,7 @@ use std::sync::Condvar;
 //use std::sync::Semaphore;
 //use tokio::sync::Semaphore;
 use std::{thread, time};
+use std::time::Duration;
 use futures::Future;
 use futures::FutureExt;
 use rand::Rng;
@@ -175,14 +176,14 @@ impl DiningPhilosphersTable  {
         println!("philosopher {:?} thread {:?} put_forks leave", i, thread::current().id()); 
     }
 
-    async fn philosopher(&mut self, i: u16) {  
+    fn philosopher(&mut self, i: u16) {  
         println!("SYD philospoher {:?} thread {:?}", i, thread::current().id());
-        loop {                         // repeat forever
+        //loop {                         // repeat forever
             self.think(i);             // philosopher is State::THINKING
             self.take_forks(i);        // acquire two forks or block
             self.eat(i);               // yum-yum, spaghetti
             self.put_forks(i);         // put both forks back on table and check if neighbours can eat
-        };
+        //};
     }
 }
 
@@ -217,27 +218,35 @@ int main() {
 }
 */
 
-async fn launch_threads_wrapper() {
-    let foo = launch_threads();
-    foo.await;
+fn launch_threads_wrapper() {
+    launch_threads();
 }
 
-async fn launch_threads() {
+fn launch_threads() {
     let my_table = DiningPhilosphersTableBuilder::new(N);
-    //let mut threads: Vec<threads::JoinHandle<_>> = Vec::<threads::JoinHandle<_>>::new();
+    let mut threads: Vec<thread::JoinHandle<_>> = Vec::<thread::JoinHandle<_>>::new();
     let table = Arc::new(Mutex::new(my_table));
     //let futs = Vec::<Box::<dyn Future>>::new();
     //let threads = Vec::<u16>::new();
     for i in 0..N {
         println!("SYD top of loop {:?}", i);
         let data = Arc::clone(&table);
-        //threads.push(thread::spawn(move || {
+        threads.push(thread::spawn(move || {
             println!("SYD thread {:?}", i);
             {
-                let mut shared = data.lock().unwrap();
-                //threads.push(shared.philosopher(i));
-                let foo = shared.philosopher(i);
-                foo.await;
+                println!("SYD thread {:?} getting lock", i);
+                loop {
+                    let mut shared = data.lock().unwrap();
+                    println!("SYD thread {:?} got lock calling philosopher()", i);
+                    //threads.push(shared.philosopher(i));
+
+                    let _foo = shared.philosopher(i);
+                    let duration = shared.my_rand(100, 5000);
+
+                    println!("SYD thread {:?} back from philosopher()", i);
+                    drop(shared); 
+                    thread::sleep(time::Duration::from_millis(duration.into()));  
+                }
             }
        
             // The shared state can only be accessed once the lock is held.
@@ -249,7 +258,7 @@ async fn launch_threads() {
             //let mut data = data.lock().unwrap();
             
             // the lock is unlocked here when `data` goes out of scope.
-        //}));
+        }));
     }
 
     //threads
@@ -260,7 +269,8 @@ async fn launch_threads() {
 use futures::executor::block_on;
 
 fn main() {
-    block_on(launch_threads_wrapper());
+    //block_on(launch_threads_wrapper());
+    launch_threads_wrapper();
 
     println!("back from threads");
 
