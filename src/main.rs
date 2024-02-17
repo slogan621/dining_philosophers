@@ -24,7 +24,6 @@ use rand::Rng;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
-use std::time::Duration;
 use std::{thread, time};
 
 const N: u16 = 5;
@@ -38,7 +37,6 @@ enum State {
 
 #[derive(Debug, Default)]
 struct DiningPhilosphersTable {
-    num_seats: u16,
     seats: Vec<State>,
     critical_region_mtx: Mutex<u16>, // (picking up and putting down the forks)
     output_mtx: Mutex<u16>, // for synchronized cout (printing THINKING/HUNGRY/EATING status)
@@ -49,9 +47,8 @@ struct DiningPhilosphersTable {
 struct DiningPhilosphersTableBuilder {}
 
 impl DiningPhilosphersTableBuilder {
-    fn new(num_seats: u16) -> DiningPhilosphersTable {
+    fn new() -> DiningPhilosphersTable {
         let mut table = DiningPhilosphersTable {
-            num_seats: num_seats,
             seats: vec![State::THINKING; N.into()],
             ..Default::default()
         };
@@ -158,7 +155,7 @@ impl DiningPhilosphersTable {
 }
 
 fn launch_threads() {
-    let my_table = DiningPhilosphersTableBuilder::new(N);
+    let my_table = DiningPhilosphersTableBuilder::new();
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::<thread::JoinHandle<_>>::new();
     let table = Arc::new(Mutex::new(my_table));
     for i in 0..N {
@@ -174,8 +171,6 @@ fn launch_threads() {
         }));
     }
 }
-
-use futures::executor::block_on;
 
 fn main() {
     launch_threads();
