@@ -26,8 +26,8 @@ struct DiningPhilosphersTable {
     //critical_region_mtx: Mutex<>,  // mutual exclusion for critical regions for
     // (picking up and putting down the forks)
     output_mtx: Mutex<u16>, // for synchronized cout (printing THINKING/HUNGRY/EATING status)
-    both_forks_available: Vec<(Mutex<bool>, Condvar)>, // simulate binary semaphore with mutex and cond var
-                                                       //both_forks_available_permit: Vec<Option<SemaphorePermit<'a>>>,
+    both_forks_available: Vec<(Mutex<u16>, Condvar)>, // simulate binary semaphore with mutex and cond var
+                                                      //both_forks_available_permit: Vec<Option<SemaphorePermit<'a>>>,
 }
 
 struct DiningPhilosphersTableBuilder {}
@@ -44,7 +44,7 @@ impl DiningPhilosphersTableBuilder {
         };
         for _i in 0..N {
             //let sem = Semaphore::const_new(0);
-            let sem: (Mutex<bool>, Condvar) = (Mutex::<bool>::new(false), Condvar::new());
+            let sem: (Mutex<u16>, Condvar) = (Mutex::<u16>::new(0), Condvar::new());
             table.both_forks_available.push(sem);
             //table.both_forks_available_permit.push(None);
         }
@@ -54,18 +54,14 @@ impl DiningPhilosphersTableBuilder {
 
 impl DiningPhilosphersTable {
     fn left(&self, i: u16) -> u16 {
-        println!("left for {:?}", i);
         // number of the left neighbor of philosopher i, for whom both forks are available
         let ret = (i + N - 1) % N; // N is added for the case when  i - 1 is negative
-        println!("left for {:?} return {:?}", i, ret);
         ret
     }
 
     fn right(&self, i: u16) -> u16 {
-        println!("right for {:?}", i);
         // number of the right neighbour of the philosopher i, for whom both forks are available
         let ret = (i + 1) % N;
-        println!("right for {:?} return {:?}", i, ret);
         ret
     }
 
@@ -76,11 +72,6 @@ impl DiningPhilosphersTable {
 
     fn test(&mut self, i: u16) {
         // if philosopher i is hungry and both neighbours are not eating then eat
-        println!(
-            "philosopher {:?} thread {:?} test enter",
-            i,
-            thread::current().id()
-        );
         // i: philosopher number, from 0 to N-
         //let mut _output_mtx = self.output_mtx.lock().unwrap();
         if self.seats[i as usize] == State::HUNGRY
@@ -89,48 +80,16 @@ impl DiningPhilosphersTable {
         {
             self.seats[i as usize] = State::EATING;
 
-            println!("SYD {:?} is EATING!!", i);
-
             let (mutex, condvar) = &self.both_forks_available[i as usize];
-            println!(
-                "philosopher {:?} thread {:?} test waiting on mutex",
-                i,
-                thread::current().id()
-            );
             let mut started = mutex.lock().unwrap();
-            println!(
-                "philosopher {:?} thread started {:?} test got mutex started {:?}",
-                i,
-                *started,
-                thread::current().id()
-            );
-            *started = true;
+            *started = *started + 1;
 
-            condvar.notify_one();
-
+            condvar.notify_all();
             drop(started);
-
-            println!(
-                "philosopher {:?} thread {:?} notified condition var test() leaving",
-                i,
-                thread::current().id()
-            );
-
-            //drop(self.both_forks_available_permit[i as usize].as_ref()); // forks are no longer needed for this eat session
         }
-        println!(
-            "philosopher {:?} thread {:?} test leave",
-            i,
-            thread::current().id()
-        );
     }
 
     fn think(&self, i: u16) {
-        println!(
-            "philosopher {:?} thread {:?} think enter",
-            i,
-            thread::current().id()
-        );
         let duration = self.my_rand(400, 800);
         {
             let mut _output_mtx = self.output_mtx.lock().unwrap();
@@ -138,18 +97,9 @@ impl DiningPhilosphersTable {
             println!("{:?} is thinking {:?} ms", i, duration);
         }
         thread::sleep(time::Duration::from_millis(duration.into()));
-        println!(
-            "philosopher {:?} thread {:?} think leave",
-            i,
-            thread::current().id()
-        );
     }
 
     fn take_forks(&mut self, i: u16) {
-        {
-            //let mut _output_mtx = self.output_mtx.lock().unwrap(); // critical section for uninterrupted print
-            println!("\t\tPhiliosoper {:?} is enter take_forks", i);
-        }
         let _critical_region_mtx = Box::new(self.critical_region_mtx.lock().unwrap()).as_mut(); // enter critical region
         self.seats[i as usize] = State::HUNGRY; // record fact that philosopher i is State::HUNGRY
         {
@@ -165,37 +115,14 @@ impl DiningPhilosphersTable {
 
         let (lock, cvar) = &self.both_forks_available[i as usize];
         let mut started = lock.lock().unwrap();
-        while !*started {
-            println!(
-                "philosopher {:?} thread {:?} waiting for condition varable",
-                i,
-                thread::current().id()
-            );
+        while *started <= 0 {
             started = cvar.wait(started).unwrap();
         }
-        println!(
-            "philosopher {:?} thread {:?} take_forks got condition variable started {:?}",
-            i,
-            thread::current().id(),
-            *started
-        );
-        *started = false;
+        *started = *started - 1;
         drop(started);
-        println!(
-            "philosopher {:?} thread {:?} take_forks leave",
-            i,
-            thread::current().id()
-        );
-
-        //self.both_forks_available[i as usize].lock();
     }
 
     fn eat(&self, i: u16) {
-        println!(
-            "philosopher {:?} thread {:?} eat enter",
-            i,
-            thread::current().id()
-        );
         let duration = self.my_rand(400, 800);
         {
             let mut _output_mtx = self.output_mtx.lock().unwrap(); // critical section for uninterrupted print
@@ -205,19 +132,9 @@ impl DiningPhilosphersTable {
             );
         }
         thread::sleep(time::Duration::from_millis(duration.into()));
-        println!(
-            "philosopher {:?} thread {:?} eat leave",
-            i,
-            thread::current().id()
-        );
     }
 
     fn put_forks(&mut self, i: u16) {
-        println!(
-            "philosopher {:?} thread {:?} put_forks enter",
-            i,
-            thread::current().id()
-        );
         let _critical_region_mtx = Box::new(self.critical_region_mtx.lock().unwrap()).as_mut(); // enter critical region
         self.seats[i as usize] = State::THINKING; // philosopher has finished State::EATING
         let left = self.left(i);
@@ -225,19 +142,9 @@ impl DiningPhilosphersTable {
         self.test(left); // see if left neighbor can now eat
         self.test(right); // see if right neighbor can now eat
                           // exit critical region by exiting the function
-        println!(
-            "philosopher {:?} thread {:?} put_forks leave",
-            i,
-            thread::current().id()
-        );
     }
 
     fn philosopher(&mut self, i: u16) {
-        println!(
-            "SYD philospoher {:?} thread {:?}",
-            i,
-            thread::current().id()
-        );
         //loop {                         // repeat forever
         self.think(i); // philosopher is State::THINKING
         self.take_forks(i); // acquire two forks or block
@@ -297,14 +204,13 @@ fn launch_threads() {
                 println!("SYD thread {:?} getting lock", i);
                 loop {
                     let mut shared = data.lock().unwrap();
-                    println!("SYD thread {:?} got lock calling philosopher()", i);
                     //threads.push(shared.philosopher(i));
 
                     let _foo = shared.philosopher(i);
-                    let duration = shared.my_rand(100, 5000);
-
-                    println!("SYD thread {:?} back from philosopher()", i);
                     drop(shared);
+
+                    //let duration = shared.my_rand(10, 50);
+                    let duration = 10u16;
                     thread::sleep(time::Duration::from_millis(duration.into()));
                 }
             }
@@ -333,7 +239,9 @@ fn main() {
 
     println!("back from threads");
 
-    loop {}
+    loop {
+        thread::sleep(time::Duration::from_millis(5000));
+    }
 
     /*
     for thread in threads {
