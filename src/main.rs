@@ -1,11 +1,9 @@
-use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
-//use std::sync::Semaphore;
-//use tokio::sync::Semaphore;
 use futures::Future;
 use futures::FutureExt;
 use rand::Rng;
+use std::sync::Arc;
+use std::sync::Condvar;
+use std::sync::Mutex;
 use std::time::Duration;
 use std::{thread, time};
 
@@ -22,11 +20,9 @@ enum State {
 struct DiningPhilosphersTable {
     num_seats: u16,
     seats: Vec<State>,
-    critical_region_mtx: Mutex<u16>,
-    //critical_region_mtx: Mutex<>,  // mutual exclusion for critical regions for
-    // (picking up and putting down the forks)
+    critical_region_mtx: Mutex<u16>, // (picking up and putting down the forks)
     output_mtx: Mutex<u16>, // for synchronized cout (printing THINKING/HUNGRY/EATING status)
-    both_forks_available: Vec<(Mutex<u16>, Condvar)>, // simulate binary semaphore with mutex and cond var
+    both_forks_available: Vec<(Mutex<i16>, Condvar)>, // simulate binary semaphore with mutex and cond var
                                                       //both_forks_available_permit: Vec<Option<SemaphorePermit<'a>>>,
 }
 
@@ -36,17 +32,12 @@ impl DiningPhilosphersTableBuilder {
     fn new(num_seats: u16) -> DiningPhilosphersTable {
         let mut table = DiningPhilosphersTable {
             num_seats: num_seats,
-            //seats: Vec::<State>::with_capacity(N.into()),
             seats: vec![State::THINKING; N.into()],
-            //both_forks_available: Vec::<Semaphore>::with_capacity(N.into()),
-            //both_forks_available: vec![Semaphore::const_new(0); N.into()],
             ..Default::default()
         };
         for _i in 0..N {
-            //let sem = Semaphore::const_new(0);
-            let sem: (Mutex<u16>, Condvar) = (Mutex::<u16>::new(0), Condvar::new());
+            let sem: (Mutex<i16>, Condvar) = (Mutex::<i16>::new(0), Condvar::new());
             table.both_forks_available.push(sem);
-            //table.both_forks_available_permit.push(None);
         }
         table
     }
@@ -73,7 +64,6 @@ impl DiningPhilosphersTable {
     fn test(&mut self, i: u16) {
         // if philosopher i is hungry and both neighbours are not eating then eat
         // i: philosopher number, from 0 to N-
-        //let mut _output_mtx = self.output_mtx.lock().unwrap();
         if self.seats[i as usize] == State::HUNGRY
             && self.seats[self.left(i) as usize] != State::EATING
             && self.seats[self.right(i) as usize] != State::EATING
@@ -85,7 +75,6 @@ impl DiningPhilosphersTable {
             *started = *started + 1;
 
             condvar.notify_all();
-            drop(started);
         }
     }
 
@@ -109,9 +98,6 @@ impl DiningPhilosphersTable {
         self.test(i); // try to acquire (a permit for) 2 forks
 
         // exit critical region
-        //self.both_forks_available_permit.push(Some(self.both_forks_available[i as usize].acquire().await.unwrap()));  // block if forks were not acquired
-        //let _permit = self.both_forks_available[i as usize].acquire().await;
-        //println!("SYD permit is {:?}", _permit);
 
         let (lock, cvar) = &self.both_forks_available[i as usize];
         let mut started = lock.lock().unwrap();
@@ -119,7 +105,6 @@ impl DiningPhilosphersTable {
             started = cvar.wait(started).unwrap();
         }
         *started = *started - 1;
-        drop(started);
     }
 
     fn eat(&self, i: u16) {
@@ -145,109 +130,37 @@ impl DiningPhilosphersTable {
     }
 
     fn philosopher(&mut self, i: u16) {
-        //loop {                         // repeat forever
         self.think(i); // philosopher is State::THINKING
         self.take_forks(i); // acquire two forks or block
         self.eat(i); // yum-yum, spaghetti
         self.put_forks(i); // put both forks back on table and check if neighbours can eat
-                           //};
     }
-}
-
-/*
-State state[N];  // array to keep track of everyone's both_forks_available state
-
-std::mutex critical_region_mtx;  // mutual exclusion for critical regions for
-// (picking up and putting down the forks)
-std::mutex output_mtx;  // for synchronized cout (printing THINKING/HUNGRY/EATING status)
-*/
-
-// array of binary semaphors, one semaphore per philosopher.
-// Acquired semaphore means philosopher i has acquired (blocked) two forks
-/*
-std::binary_semaphore both_forks_available[N]
-{
-    std::binary_semaphore{0}, std::binary_semaphore{0},
-    std::binary_semaphore{0}, std::binary_semaphore{0},
-    std::binary_semaphore{0}
-};
-*/
-
-/*
-int main() {
-    std::cout << "dp_14\n";
-
-    std::jthread t0([&] { philosopher(0); }); // [&] means every variable outside the ensuing lambda
-    std::jthread t1([&] { philosopher(1); }); // is captured by reference
-    std::jthread t2([&] { philosopher(2); });
-    std::jthread t3([&] { philosopher(3); });
-    std::jthread t4([&] { philosopher(4); });
-}
-*/
-
-fn launch_threads_wrapper() {
-    launch_threads();
 }
 
 fn launch_threads() {
     let my_table = DiningPhilosphersTableBuilder::new(N);
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::<thread::JoinHandle<_>>::new();
     let table = Arc::new(Mutex::new(my_table));
-    //let futs = Vec::<Box::<dyn Future>>::new();
-    //let threads = Vec::<u16>::new();
     for i in 0..N {
-        println!("SYD top of loop {:?}", i);
         let data = Arc::clone(&table);
-        threads.push(thread::spawn(move || {
-            println!("SYD thread {:?}", i);
-            {
-                println!("SYD thread {:?} getting lock", i);
-                loop {
-                    let mut shared = data.lock().unwrap();
-                    //threads.push(shared.philosopher(i));
+        threads.push(thread::spawn(move || loop {
+            let mut shared = data.lock().unwrap();
 
-                    let _foo = shared.philosopher(i);
-                    drop(shared);
+            let _ = shared.philosopher(i);
 
-                    //let duration = shared.my_rand(10, 50);
-                    let duration = 10u16;
-                    thread::sleep(time::Duration::from_millis(duration.into()));
-                }
-            }
-
-            // The shared state can only be accessed once the lock is held.
-            // Our non-atomic increment is safe because we're the only thread
-            // which can access the shared state when the lock is held.
-            //
-            // We unwrap() the return value to assert that we are not expecting
-            // threads to ever fail while holding the lock.
-            //let mut data = data.lock().unwrap();
-
-            // the lock is unlocked here when `data` goes out of scope.
+            let duration = shared.my_rand(200, 1600);
+            drop(shared);
+            thread::sleep(time::Duration::from_millis(duration.into()));
         }));
     }
-
-    //threads
-    //futures::join!(futs);
 }
 
 use futures::executor::block_on;
 
 fn main() {
-    //block_on(launch_threads_wrapper());
-    launch_threads_wrapper();
-
-    println!("back from threads");
+    launch_threads();
 
     loop {
         thread::sleep(time::Duration::from_millis(5000));
     }
-
-    /*
-    for thread in threads {
-        println!("SYD thread join");
-        thread.join();
-    }
-    println!("SYD main exit");
-    */
 }
